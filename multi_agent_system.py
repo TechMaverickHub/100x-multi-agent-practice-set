@@ -401,6 +401,78 @@ Respond with ONLY valid JSON:
         self._log_phase("🧠 PLAN", {"action": "COMPLETE", "title": plan.get("article", {}).get("title", "N/A")[:50]})
         return plan
 
+
+
+class SentimentAnalyzerAgent(BaseAgent):
+    """Agent specialized in analyzing sentiment of text."""
+
+    def __init__(self):
+        super().__init__("SentimentAnalyser", "Analyse sentiment of text data")
+
+    def _plan(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Plan article writing."""
+
+        article = context.get("article", [])
+
+        prompt = f"""You are a professional sentiment analysis engine.
+
+        Text to Analyze:
+        \"\"\"
+        {article}
+        \"\"\"
+
+        Analyze the sentiment of the above text.
+
+        Your analysis must include:
+        - Overall sentiment (Positive / Neutral / Negative / Mixed)
+        - Confidence score (0.0 – 1.0)
+        - Emotional tones detected (e.g., joy, anger, frustration, excitement)
+        - Key positive signals (phrases or reasons)
+        - Key negative signals (phrases or reasons)
+        - A short explanation (2–3 lines)
+
+        Respond with ONLY valid JSON in the following format:
+        {{
+          "action": "COMPLETE",
+          "sentiment_analysis": {{
+            "overall_sentiment": "...",
+            "confidence_score": 0.0,
+            "emotions": ["...", "..."],
+            "positive_signals": ["...", "..."],
+            "negative_signals": ["...", "..."],
+            "explanation": "..."
+          }},
+          "answer": "Sentiment analysis completed"
+        }}
+        """
+
+        response = self.llm.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": "You are an expert NLP sentiment analyzer. Always respond with valid JSON only."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.5
+        )
+
+        analysis = self._parse_json(response.choices[0].message.content)
+
+        self._log_phase(
+            "🧠 SENTIMENT ANALYSIS",
+            {
+                "action": analysis.get("action", "N/A"),
+                "overall_sentiment": analysis
+                .get("sentiment_analysis", {})
+                .get("overall_sentiment", "N/A"),
+                "confidence_score": analysis
+                .get("sentiment_analysis", {})
+                .get("confidence_score", 0.0),
+            }
+        )
+
+        return analysis
+
+
 # =============================================================================
 # MANAGER AGENT (Orchestrator)
 # =============================================================================
@@ -417,7 +489,8 @@ class ManagerAgent(BaseAgent):
             "note_taker": NoteTakerAgent(),
             "todo_creator": TodoCreatorAgent(),
             "github_manager": GitHubManagerAgent(),
-            "article_writer": ArticleWriterAgent()
+            "article_writer": ArticleWriterAgent(),
+            "sentiment_analyzer": SentimentAnalyzerAgent(),
         }
 
         self.workflow_results = {}
@@ -430,6 +503,7 @@ class ManagerAgent(BaseAgent):
         3. Create todos
         4. Create GitHub repo plan
         5. Write article outline
+        6. Extract sentiment analysis
         """
 
         print("\n" + "="*80)
@@ -505,6 +579,18 @@ class ManagerAgent(BaseAgent):
             article_data = article_result["result"]  # Already a dict
             self.workflow_results["article"] = article_data.get("article", {})
 
+        # Step 6: Sentiment Analysis
+        print("\n📍 STEP 6: Analyzing Article Sentiment")
+        print("-" * 80)
+        sentiment_result = self.agent_tools["sentiment_analyzer"].run(
+            goal="Analyze sentiment of the article",
+            context={"article": json.dumps(self.workflow_results.get("article", {}))},
+            max_iterations=2
+        )
+        if sentiment_result["success"]:
+            sentiment_data = sentiment_result["result"]  # Already a dict
+            self.workflow_results["sentiment_analysis"] = sentiment_data.get("sentiment_analysis", {})
+
         return self.workflow_results
 
     def save_results(self, output_file: str = "workflow_results.json"):
@@ -559,5 +645,6 @@ if __name__ == "__main__":
     print(f"✅ Todos Created: {len(results.get('todos', []))}")
     print(f"🔨 GitHub Repo: {results.get('github', {}).get('name', 'N/A')}")
     print(f"📰 Article Title: {results.get('article', {}).get('title', 'N/A')}")
+    print(f"💬 Sentiment: {results.get('sentiment_analysis', {}).get('overall_sentiment', 'N/A')}")
     print("\n💡 Check 'workflow_results.json' for detailed output!")
     print("="*80 + "\n")
