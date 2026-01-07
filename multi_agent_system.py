@@ -412,14 +412,17 @@ class SentimentAnalyzerAgent(BaseAgent):
     def _plan(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Plan article writing."""
 
-        article = context.get("article", [])
+        transcript = context.get("transcript", "")
+        insights = context.get("insights", [])
+
 
         prompt = f"""You are a professional sentiment analysis engine.
 
-        Text to Analyze:
-        \"\"\"
-        {article}
-        \"\"\"
+        Key Insights:
+        {json.dumps(insights[:5], indent=2)}
+
+        Meeting Transcript Excerpt:
+        {transcript[:2000]}...
 
         Analyze the sentiment of the above text.
 
@@ -584,12 +587,13 @@ class ManagerAgent(BaseAgent):
         print("-" * 80)
         sentiment_result = self.agent_tools["sentiment_analyzer"].run(
             goal="Analyze sentiment of the article",
-            context={"article": json.dumps(self.workflow_results.get("article", {}))},
+            context={"article": json.dumps(self.workflow_results.get("article", {})), "transcript": transcript, "insights": workflow_context.get("insights", [])},
             max_iterations=2
         )
         if sentiment_result["success"]:
             sentiment_data = sentiment_result["result"]  # Already a dict
             self.workflow_results["sentiment_analysis"] = sentiment_data.get("sentiment_analysis", {})
+
 
         return self.workflow_results
 
